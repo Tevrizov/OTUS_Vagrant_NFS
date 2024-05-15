@@ -1,0 +1,104 @@
+---
+#-------- Настраиваем сервер NFS  -------------
+- hosts: nfss 
+  become: true
+  tasks:
+  - name: install packages 
+    apt:
+      name: "{{ packages }}"
+      state: present
+    vars:
+      packages:
+      - nfs-kernel-server
+
+
+    #Создаю и настраиваю директорию, которая будет экспортирована в будущем   
+  - name: Create directory 
+    ansible.builtin.file:
+      path: /srv/share/upload
+      state: directory
+      owner: nobody
+      group: nogroup
+      mode: 0777
+    
+
+  #добавляю строку /srv/share 192.168.50.11/32(rw,sync,root_squash) в файл /etc/exports
+  # Если данная запись уже есть в файле, ansible ничего не станет менять.
+  - name: Change /etc/exports
+    lineinfile:
+      path: "/etc/exports"
+      line: '/srv/share 192.168.50.11/32(rw,sync,root_squash)'
+
+    #проверка записи
+  - name: print /etc/exports
+    shell:
+      cat /etc/exports
+    register: results
+  - debug:
+     var: results.stdout
+    
+
+  - name: Execute shell command "exportfs -r and exportfs -s "
+    ansible.builtin.shell: |
+      exportfs -r
+      exportfs -s  
+    register: results
+  - debug:
+     var: results.stdout
+    
+
+
+
+#-------- Настраиваем клиент NFS  -------------
+
+- hosts: nfsc
+  become: true
+  tasks:
+  - name: install packages 
+    apt:
+      name: "{{ packages }}"
+      state: present
+    vars:
+      packages:
+      - nfs-common
+
+
+#добавляю строку "192.168.50.10:/srv/share/ /mnt nfs vers=3,noauto,x-systemd.automount 0 0" в файл /etc/fstab
+# Если данная запись уже есть в файле, ansible ничего не станет менять.
+  - name: Change /etc/fstab
+    lineinfile:
+      path: "/etc/fstab"
+      line: '192.168.50.10:/srv/share/ /mnt nfs vers=3,noauto,x-systemd.automount 0 0'
+
+
+  - name: Execute shell command "systemctl daemon-reload  and systemctl restart remote-fs.target"
+    ansible.builtin.shell: |
+      systemctl daemon-reload
+      systemctl restart remote-fs.target  
+    register: results
+  - debug:
+     var: results.stdout
+
+#----- проверка -----------------------
+- hosts: nfsc
+  become: true
+  tasks:
+  - name: Create file
+    ansible.builtin.file:
+      path: /mnt/upload/final_check
+      state: touch
+      owner: nobody
+      group: nogroup
+      mode: 0777
+    
+- hosts: nfss
+  become: true
+  tasks: 
+  - name: ls file
+    shell: |
+      ls /srv/share/upload/
+    register: results
+  - debug:
+     var: results.stdout
+ 
+
